@@ -11,7 +11,10 @@
 #include <mgba/core/timing.h>
 #include <mgba/core/version.h>
 #include <mgba/internal/debugger/parser.h>
+#include <mgba-util/socket.h>
 #include <mgba-util/string.h>
+#include <mgba-util/threading.h>
+#include <mgba-util/vector.h>
 #include <mgba-util/vfs.h>
 
 #ifdef ENABLE_SCRIPTING
@@ -76,6 +79,8 @@ static void _finish(struct CLIDebugger*, struct CLIDebugVector*);
 static void _setStackTraceMode(struct CLIDebugger*, struct CLIDebugVector*);
 static void _setSymbol(struct CLIDebugger*, struct CLIDebugVector*);
 static void _findSymbol(struct CLIDebugger*, struct CLIDebugVector*);
+static void _startDebugServer(struct CLIDebugger*, struct CLIDebugVector*);
+static void _stopDebugServer(struct CLIDebugger*, struct CLIDebugVector*);
 
 static struct CLIDebuggerCommandSummary _debuggerCommands[] = {
 	{ "backtrace", _backtrace, "i", "Print backtrace of all or specified frames" },
@@ -113,6 +118,8 @@ static struct CLIDebuggerCommandSummary _debuggerCommands[] = {
 	{ "x/1", _dumpByte, "Ii", "Examine bytes at a specified offset" },
 	{ "x/2", _dumpHalfword, "Ii", "Examine halfwords at a specified offset" },
 	{ "x/4", _dumpWord, "Ii", "Examine words at a specified offset" },
+	{ "debugstart", _startDebugServer, "", "Start debug server" },
+	{ "debugstop", _stopDebugServer, "", "Stop debug server" },
 #ifdef ENABLE_SCRIPTING
 	{ "source", _source, "S", "Load a script" },
 #endif
@@ -1309,4 +1316,265 @@ static void _findSymbol(struct CLIDebugger* debugger, struct CLIDebugVector* dv)
 	} else {
 		debugger->backend->printf(debugger->backend, "Not found.\n");
 	}
+}
+
+struct DebugClientContext {
+	struct CLIDebugger* debugger;
+	struct CLIDebugVector* dv;
+
+	Socket clientSocket;
+};
+
+struct DebugClientItem {
+	struct DebugClientContext* current;
+	struct DebugClientItem* next;
+};
+
+struct TcpServerContext {
+	struct CLIDebugger* debugger;
+	struct CLIDebugVector* dv;
+};
+
+struct DebugServer {
+	Socket tcpServer;
+	struct TcpServerContext context;
+
+	struct DebugClientItem* debugClientHead;
+};
+
+static struct DebugServer debugServer;
+
+static THREAD_ENTRY _listenTcpClient(void* context) {
+	const struct DebugClientContext* clientContext = context;
+	const Socket client = clientContext->clientSocket;
+	const struct CLIDebugger* debugger = clientContext->debugger;
+
+	char buffer[8192];
+	int32_t read;
+
+	clientContext->debugger->backend->printf(clientContext->debugger->backend, "Client connected...\n");
+
+	while ((read = SocketRecv(client, &buffer, sizeof buffer)) > 0) {
+		char* command = malloc(sizeof(char) * read);
+		snprintf(command, read, "%.*s", read, buffer);
+
+		char** tokens = NULL;
+		int32_t tokenSize = 0;
+		int32_t offset = 0;
+
+		for (int32_t i = 0; i < read; i++) {
+			if (command[i] == ' ') {
+				const int32_t tokenStringLength = i - offset;
+
+				if (tokenSize == 0) {
+					tokenSize++;
+					tokens = malloc(sizeof(char*) * tokenSize);
+				} else {
+					tokenSize++;
+					tokens = realloc(tokens, sizeof(char*) * tokenSize);
+				}
+
+				tokens[tokenSize - 1] = malloc(sizeof(char) * (tokenStringLength + 1));
+				snprintf(tokens[tokenSize - 1], tokenStringLength + 1, "%.*s", tokenStringLength, command + offset);
+				offset = i + 1;
+			} else if (command[i] == '\r' || command[i] == '\n') {
+				const int32_t tokenStringLength = i - offset;
+
+				tokenSize++;
+				tokens = realloc(tokens, sizeof(char*) * tokenSize);
+
+				tokens[tokenSize - 1] = malloc(sizeof(char) * (tokenStringLength + 1));
+				snprintf(tokens[tokenSize - 1], tokenStringLength + 1, "%.*s", tokenStringLength, command + offset);
+				break;
+			}
+		}
+
+		clientContext->debugger->backend->printf(clientContext->debugger->backend, "Packet Received:");
+
+		for (int i = 0; i < tokenSize; i++) {
+			clientContext->debugger->backend->printf(clientContext->debugger->backend, " %s", tokens[i]);
+		}
+
+		clientContext->debugger->backend->printf(clientContext->debugger->backend, "\n");
+
+		if (tokenSize > 0) {
+			if (startswith(tokens[0], "read_byte")) {
+				if (tokenSize >= 3) {
+					const uint32_t value = debugger->d.core->rawRead8(debugger->d.core, (uint32_t) strtoull(tokens[1], NULL, 10), (int) strtoull(tokens[2], NULL, 10));
+					SocketSend(client, &buffer, snprintf(buffer, 8192, "%i\n", value));
+				} else {
+					SocketSend(client, &buffer, snprintf(buffer, 8192, "%d\n", -1));
+				}
+			} else if (startswith(tokens[0], "read_word")) {
+				if (tokenSize >= 3) {
+					const uint32_t value = debugger->d.core->rawRead16(debugger->d.core, (uint32_t) strtoull(tokens[1], NULL, 10), (int) strtoull(tokens[2], NULL, 10));
+					SocketSend(client, &buffer, snprintf(buffer, 8192, "%i\n", value));
+				} else {
+					SocketSend(client, &buffer, snprintf(buffer, 8192, "%d\n", -1));
+				}
+			} else if (startswith(tokens[0], "read_dword")) {
+				if (tokenSize >= 3) {
+					const uint32_t value = debugger->d.core->rawRead32(debugger->d.core, (uint32_t) strtoull(tokens[1], NULL, 10), (int) strtoull(tokens[2], NULL, 10));
+					SocketSend(client, &buffer, snprintf(buffer, 8192, "%i\n", value));
+				} else {
+					SocketSend(client, &buffer, snprintf(buffer, 8192, "%d\n", -1));
+				}
+			} else if (startswith(tokens[0], "write_byte")) {
+				if (tokenSize >= 4) {
+					debugger->d.core->rawWrite8(debugger->d.core, (uint32_t) strtoull(tokens[1], NULL, 10), (int) strtoull(tokens[2], NULL, 10), (uint8_t) strtoull(tokens[3], NULL, 10));
+					SocketSend(client, &buffer, snprintf(buffer, 8192, "%d\n", 1));
+				} else {
+					SocketSend(client, &buffer, snprintf(buffer, 8192, "%d\n", -1));
+				}
+			} else if (startswith(tokens[0], "write_word")) {
+				if (tokenSize >= 4) {
+					debugger->d.core->rawWrite16(debugger->d.core, (uint32_t) strtoull(tokens[1], NULL, 10), (int) strtoull(tokens[2], NULL, 10), (uint16_t) strtoull(tokens[3], NULL, 10));
+					SocketSend(client, &buffer, snprintf(buffer, 8192, "%d\n", 1));
+				} else {
+					SocketSend(client, &buffer, snprintf(buffer, 8192, "%d\n", -1));
+				}
+			} else if (startswith(tokens[0], "write_dword")) {
+				if (tokenSize >= 4) {
+					debugger->d.core->rawWrite32(debugger->d.core, (uint32_t) strtoull(tokens[1], NULL, 10), (int) strtoull(tokens[2], NULL, 10), (uint32_t) strtoull(tokens[3], NULL, 10));
+					SocketSend(client, &buffer, snprintf(buffer, 8192, "%d\n", 1));
+				} else {
+					SocketSend(client, &buffer, snprintf(buffer, 8192, "%d\n", -1));
+				}
+			} else {
+				SocketSend(client, &buffer, snprintf(buffer, 8192, "%d\n", -1));
+			}
+		} else {
+			SocketSend(client, &buffer, snprintf(buffer, 8192, "%d\n", -1));
+		}
+
+		for (int32_t i = 0; i < tokenSize; i++) {
+			free(tokens[i]);
+		}
+
+		free(tokens);
+		free(command);
+	}
+
+	clientContext->debugger->backend->printf(clientContext->debugger->backend, "Client closed.\n");
+
+	struct DebugClientItem* head = debugServer.debugClientHead;
+
+    if (head->current->clientSocket == client) {
+		debugServer.debugClientHead = head->next;
+		free(head);
+	} else {
+	    while (head != NULL) {
+		    struct DebugClientItem* prevHead = head;
+			head = head->next;
+
+			if (head->current->clientSocket == client) {
+				prevHead->next = head->next;
+				free(head);
+				break;
+			}
+	    }
+	}
+
+	SocketClose(client);
+	return 0;
+}
+
+static THREAD_ENTRY _listenTcpServerForClient(void* context) {
+	const struct TcpServerContext* serverContext = context;
+	const Socket socket = debugServer.tcpServer;
+
+	serverContext->debugger->backend->printf(serverContext->debugger->backend, "Listening for TCP clients...\n");
+
+	while (debugServer.tcpServer != 0) {
+		const Socket client = SocketAccept(socket, NULL);
+
+		if (!SOCKET_FAILED(client)) {
+			struct DebugClientContext *clientContext = malloc(sizeof(struct DebugClientContext));
+			clientContext->debugger = serverContext->debugger;
+			clientContext->dv = serverContext->dv;
+			clientContext->clientSocket = client;
+
+			if (debugServer.debugClientHead == NULL) {
+				debugServer.debugClientHead = malloc(sizeof(struct DebugClientItem));
+				debugServer.debugClientHead->current = clientContext;
+				debugServer.debugClientHead->next = NULL;
+			} else {
+				struct DebugClientItem* currentHead = debugServer.debugClientHead;
+
+				while (currentHead->next != NULL) {
+					currentHead = currentHead->next;
+				}
+
+				currentHead->next = malloc(sizeof(struct DebugClientItem));
+				currentHead->next->current = clientContext;
+				currentHead->next->next = NULL;
+			}
+
+			Thread clientThread;
+			ThreadCreate(&clientThread, _listenTcpClient, clientContext);
+		}
+	}
+
+	serverContext->debugger->backend->printf(serverContext->debugger->backend, "Stopped Listening for TCP clients.\n");
+	return 0;
+}
+
+static void _startDebugServer(struct CLIDebugger* debugger, struct CLIDebugVector* dv) {
+	if (debugServer.tcpServer > 0) {
+		debugger->backend->printf(debugger->backend, "Debug server is already running.\n");
+		return;
+	}
+
+	SocketSubsystemInit();
+
+	const Socket tcpServer = SocketOpenTCP(26518, NULL);
+
+	if (SOCKET_FAILED(tcpServer)) {
+		SocketSubsystemDeinit();
+		debugger->backend->printf(debugger->backend, "Unable to bind debug server.\n");
+		return;
+	}
+
+	if (SOCKET_FAILED(SocketListen(tcpServer, 0))) {
+		SocketClose(tcpServer);
+		SocketSubsystemDeinit();
+		debugger->backend->printf(debugger->backend, "Unable to listen debug server.\n");
+		return;
+	}
+
+	debugger->backend->printf(debugger->backend, "Debug server started at port 26518.\n");
+
+	debugServer.tcpServer = tcpServer;
+
+	debugServer.context.debugger = debugger;
+	debugServer.context.dv = dv;
+
+	Thread listenerThread;
+	ThreadCreate(&listenerThread, _listenTcpServerForClient, &debugServer.context);
+}
+
+static void _stopDebugServer(struct CLIDebugger* debugger, struct CLIDebugVector* dv) {
+	if (debugServer.tcpServer <= 0) {
+		debugger->backend->printf(debugger->backend, "Debug server is not running.\n");
+		return;
+	}
+
+	struct DebugClientItem* currentHead = debugServer.debugClientHead;
+
+	while (currentHead != NULL) {
+		struct DebugClientItem* temp = currentHead;
+
+		SocketClose(currentHead->current->clientSocket);
+		currentHead = currentHead->next;
+
+		free(temp->current);
+		free(temp);
+	}
+
+	SocketClose(debugServer.tcpServer);
+	SocketSubsystemDeinit();
+
+	debugServer.tcpServer = 0;
+
+	debugger->backend->printf(debugger->backend, "Debug server has stopped.\n");
 }
