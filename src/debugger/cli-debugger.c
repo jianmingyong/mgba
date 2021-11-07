@@ -1349,7 +1349,7 @@ static THREAD_ENTRY _listenTcpClient(void* context) {
 	const Socket client = clientContext->clientSocket;
 	const struct CLIDebugger* debugger = clientContext->debugger;
 
-	char buffer[8192];
+	char buffer[16384];
 	int32_t read;
 
 	clientContext->debugger->backend->printf(clientContext->debugger->backend, "Client connected...\n");
@@ -1401,62 +1401,62 @@ static THREAD_ENTRY _listenTcpClient(void* context) {
 			if (startswith(tokens[0], "read_byte")) {
 				if (tokenSize == 3) {
 					const uint32_t value = debugger->d.core->rawRead8(debugger->d.core, (uint32_t) strtoull(tokens[1], NULL, 10), (int) strtoull(tokens[2], NULL, 10));
-					SocketSend(client, &buffer, snprintf(buffer, 8192, "%i\n", value));
+					SocketSend(client, &buffer, snprintf(buffer, 16384, "%i\n", value));
 				} else if (tokenSize == 4) {
 					const uint32_t startIndex = strtoull(tokens[1], NULL, 10);
 					const uint32_t stopIndex = strtoull(tokens[2], NULL, 10);
 					int32_t totalWrite = 0;
 
 					for (uint32_t i = startIndex; i < stopIndex; i++) {
-						totalWrite += snprintf(buffer + totalWrite, 8192 - totalWrite, "%d ", debugger->d.core->rawRead8(debugger->d.core, i, (int) strtoull(tokens[3], NULL, 10)));
+						totalWrite += snprintf(buffer + totalWrite, 16384 - totalWrite, "%d ", debugger->d.core->rawRead8(debugger->d.core, i, (int) strtoull(tokens[3], NULL, 10)));
 					}
 
-					snprintf(buffer + totalWrite, 8192 - totalWrite, "\n");
+					totalWrite += snprintf(buffer + totalWrite, 16384 - totalWrite, "\n");
 
 					SocketSend(client, &buffer, totalWrite);
 				} else {
-					SocketSend(client, &buffer, snprintf(buffer, 8192, "%d\n", -1));
+					SocketSend(client, &buffer, snprintf(buffer, 16384, "%d\n", -1));
 				}
 			} else if (startswith(tokens[0], "read_word")) {
 				if (tokenSize >= 3) {
 					const uint32_t value = debugger->d.core->rawRead16(debugger->d.core, (uint32_t) strtoull(tokens[1], NULL, 10), (int) strtoull(tokens[2], NULL, 10));
-					SocketSend(client, &buffer, snprintf(buffer, 8192, "%i\n", value));
+					SocketSend(client, &buffer, snprintf(buffer, 16384, "%i\n", value));
 				} else {
-					SocketSend(client, &buffer, snprintf(buffer, 8192, "%d\n", -1));
+					SocketSend(client, &buffer, snprintf(buffer, 16384, "%d\n", -1));
 				}
 			} else if (startswith(tokens[0], "read_dword")) {
 				if (tokenSize >= 3) {
 					const uint32_t value = debugger->d.core->rawRead32(debugger->d.core, (uint32_t) strtoull(tokens[1], NULL, 10), (int) strtoull(tokens[2], NULL, 10));
-					SocketSend(client, &buffer, snprintf(buffer, 8192, "%i\n", value));
+					SocketSend(client, &buffer, snprintf(buffer, 16384, "%i\n", value));
 				} else {
-					SocketSend(client, &buffer, snprintf(buffer, 8192, "%d\n", -1));
+					SocketSend(client, &buffer, snprintf(buffer, 16384, "%d\n", -1));
 				}
 			} else if (startswith(tokens[0], "write_byte")) {
 				if (tokenSize >= 4) {
 					debugger->d.core->rawWrite8(debugger->d.core, (uint32_t) strtoull(tokens[1], NULL, 10), (int) strtoull(tokens[2], NULL, 10), (uint8_t) strtoull(tokens[3], NULL, 10));
-					SocketSend(client, &buffer, snprintf(buffer, 8192, "%d\n", 1));
+					SocketSend(client, &buffer, snprintf(buffer, 16384, "%d\n", 1));
 				} else {
-					SocketSend(client, &buffer, snprintf(buffer, 8192, "%d\n", -1));
+					SocketSend(client, &buffer, snprintf(buffer, 16384, "%d\n", -1));
 				}
 			} else if (startswith(tokens[0], "write_word")) {
 				if (tokenSize >= 4) {
 					debugger->d.core->rawWrite16(debugger->d.core, (uint32_t) strtoull(tokens[1], NULL, 10), (int) strtoull(tokens[2], NULL, 10), (uint16_t) strtoull(tokens[3], NULL, 10));
-					SocketSend(client, &buffer, snprintf(buffer, 8192, "%d\n", 1));
+					SocketSend(client, &buffer, snprintf(buffer, 16384, "%d\n", 1));
 				} else {
-					SocketSend(client, &buffer, snprintf(buffer, 8192, "%d\n", -1));
+					SocketSend(client, &buffer, snprintf(buffer, 16384, "%d\n", -1));
 				}
 			} else if (startswith(tokens[0], "write_dword")) {
 				if (tokenSize >= 4) {
 					debugger->d.core->rawWrite32(debugger->d.core, (uint32_t) strtoull(tokens[1], NULL, 10), (int) strtoull(tokens[2], NULL, 10), (uint32_t) strtoull(tokens[3], NULL, 10));
-					SocketSend(client, &buffer, snprintf(buffer, 8192, "%d\n", 1));
+					SocketSend(client, &buffer, snprintf(buffer, 16384, "%d\n", 1));
 				} else {
-					SocketSend(client, &buffer, snprintf(buffer, 8192, "%d\n", -1));
+					SocketSend(client, &buffer, snprintf(buffer, 16384, "%d\n", -1));
 				}
 			} else {
-				SocketSend(client, &buffer, snprintf(buffer, 8192, "%d\n", -1));
+				SocketSend(client, &buffer, snprintf(buffer, 16384, "%d\n", -1));
 			}
 		} else {
-			SocketSend(client, &buffer, snprintf(buffer, 8192, "%d\n", -1));
+			SocketSend(client, &buffer, snprintf(buffer, 16384, "%d\n", -1));
 		}
 
 		for (int32_t i = 0; i < tokenSize; i++) {
