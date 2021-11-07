@@ -1356,7 +1356,7 @@ static THREAD_ENTRY _listenTcpClient(void* context) {
 
 	while ((read = SocketRecv(client, &buffer, sizeof buffer)) > 0) {
 		char* command = malloc(sizeof(char) * read);
-		snprintf(command, read, "%.*s", read, buffer);
+		snprintf(command, read + 1, "%.*s", read, buffer);
 
 		char** tokens = NULL;
 		int32_t tokenSize = 0;
@@ -1399,9 +1399,21 @@ static THREAD_ENTRY _listenTcpClient(void* context) {
 
 		if (tokenSize > 0) {
 			if (startswith(tokens[0], "read_byte")) {
-				if (tokenSize >= 3) {
+				if (tokenSize == 3) {
 					const uint32_t value = debugger->d.core->rawRead8(debugger->d.core, (uint32_t) strtoull(tokens[1], NULL, 10), (int) strtoull(tokens[2], NULL, 10));
 					SocketSend(client, &buffer, snprintf(buffer, 8192, "%i\n", value));
+				} else if (tokenSize == 4) {
+					const uint32_t startIndex = strtoull(tokens[1], NULL, 10);
+					const uint32_t stopIndex = strtoull(tokens[2], NULL, 10);
+					int32_t totalWrite = 0;
+
+					for (uint32_t i = startIndex; i < stopIndex; i++) {
+						totalWrite += snprintf(buffer + totalWrite, 8192 - totalWrite, "%d ", debugger->d.core->rawRead8(debugger->d.core, i, (int) strtoull(tokens[3], NULL, 10)));
+					}
+
+					snprintf(buffer + totalWrite, 8192 - totalWrite, "\n");
+
+					SocketSend(client, &buffer, totalWrite);
 				} else {
 					SocketSend(client, &buffer, snprintf(buffer, 8192, "%d\n", -1));
 				}
