@@ -1363,7 +1363,7 @@ static THREAD_ENTRY _listenTcpClient(void* context) {
 		int32_t offset = 0;
 
 		for (int32_t i = 0; i < read; i++) {
-			if (command[i] == ' ') {
+			if (command[i] == ' ' || command[i] == '\r' || command[i] == '\n') {
 				const int32_t tokenStringLength = i - offset;
 
 				if (tokenSize == 0) {
@@ -1377,20 +1377,8 @@ static THREAD_ENTRY _listenTcpClient(void* context) {
 				tokens[tokenSize - 1] = malloc(sizeof(char) * (tokenStringLength + 1));
 				snprintf(tokens[tokenSize - 1], tokenStringLength + 1, "%.*s", tokenStringLength, command + offset);
 				offset = i + 1;
-			} else if (command[i] == '\r' || command[i] == '\n') {
-				const int32_t tokenStringLength = i - offset;
-
-                if (tokenSize == 0) {
-					tokenSize++;
-					tokens = malloc(sizeof(char*) * tokenSize);
-				} else {
-					tokenSize++;
-					tokens = realloc(tokens, sizeof(char*) * tokenSize);
-				}
-
-				tokens[tokenSize - 1] = malloc(sizeof(char) * (tokenStringLength + 1));
-				snprintf(tokens[tokenSize - 1], tokenStringLength + 1, "%.*s", tokenStringLength, command + offset);
-				break;
+                
+                if (command[i] == '\r' || command[i] == '\n') break;
 			}
 		}
 
