@@ -1380,8 +1380,13 @@ static THREAD_ENTRY _listenTcpClient(void* context) {
 			} else if (command[i] == '\r' || command[i] == '\n') {
 				const int32_t tokenStringLength = i - offset;
 
-				tokenSize++;
-				tokens = realloc(tokens, sizeof(char*) * tokenSize);
+                if (tokenSize == 0) {
+					tokenSize++;
+					tokens = malloc(sizeof(char*) * tokenSize);
+				} else {
+					tokenSize++;
+					tokens = realloc(tokens, sizeof(char*) * tokenSize);
+				}
 
 				tokens[tokenSize - 1] = malloc(sizeof(char) * (tokenStringLength + 1));
 				snprintf(tokens[tokenSize - 1], tokenStringLength + 1, "%.*s", tokenStringLength, command + offset);
