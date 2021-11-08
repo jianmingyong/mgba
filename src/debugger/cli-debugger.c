@@ -1344,41 +1344,37 @@ struct DebugServer {
 
 static struct DebugServer debugServer;
 
-static THREAD_ENTRY _listenTcpClient(void* context) {
+static THREAD_ENTRY _listenTcpClient(const void* context) {
 	const struct DebugClientContext* clientContext = context;
 	const Socket client = clientContext->clientSocket;
 	const struct CLIDebugger* debugger = clientContext->debugger;
 
 	char buffer[16384];
-	int32_t read;
+	size_t read;
 
 	clientContext->debugger->backend->printf(clientContext->debugger->backend, "Client connected...\n");
 
 	while ((read = SocketRecv(client, &buffer, sizeof buffer)) > 0) {
-		char* command = malloc(sizeof(char) * read);
-		snprintf(command, read + 1, "%.*s", read, buffer);
-
 		char** tokens = NULL;
 		int32_t tokenSize = 0;
-		int32_t offset = 0;
+		size_t offset = 0;
 
-		for (int32_t i = 0; i < read; i++) {
-			if (command[i] == ' ' || command[i] == '\r' || command[i] == '\n') {
-				const int32_t tokenStringLength = i - offset;
+		for (size_t i = 0; i < read; i++) {
+			if (buffer[i] == ' ' || buffer[i] == '\r' || buffer[i] == '\n') {
+				const size_t tokenStringLength = i - offset;
+				if (tokenStringLength == 0) continue;
 
 				if (tokenSize == 0) {
-					tokenSize++;
-					tokens = malloc(sizeof(char*) * tokenSize);
+					tokens = malloc(sizeof(char*) * ++tokenSize);
 				} else {
-					tokenSize++;
-					tokens = realloc(tokens, sizeof(char*) * tokenSize);
+					tokens = realloc(tokens, sizeof(char*) * ++tokenSize);
 				}
 
 				tokens[tokenSize - 1] = malloc(sizeof(char) * (tokenStringLength + 1));
-				snprintf(tokens[tokenSize - 1], tokenStringLength + 1, "%.*s", tokenStringLength, command + offset);
+				snprintf(tokens[tokenSize - 1], tokenStringLength + 1, "%.*s", (int) tokenStringLength, buffer + offset);
 				offset = i + 1;
                 
-                if (command[i] == '\r' || command[i] == '\n') break;
+                if (buffer[i] == '\r' || buffer[i] == '\n') break;
 			}
 		}
 
@@ -1396,8 +1392,8 @@ static THREAD_ENTRY _listenTcpClient(void* context) {
 					const uint32_t value = debugger->d.core->rawRead8(debugger->d.core, (uint32_t) strtoull(tokens[1], NULL, 10), (int) strtoull(tokens[2], NULL, 10));
 					SocketSend(client, &buffer, snprintf(buffer, 16384, "%i\n", value));
 				} else if (tokenSize == 4) {
-					const uint32_t startIndex = strtoull(tokens[1], NULL, 10);
-					const uint32_t stopIndex = strtoull(tokens[2], NULL, 10);
+					const uint32_t startIndex = (uint32_t) strtoull(tokens[1], NULL, 10);
+					const uint32_t stopIndex = (uint32_t) strtoull(tokens[2], NULL, 10);
 					int32_t totalWrite = 0;
 
 					for (uint32_t i = startIndex; i < stopIndex; i++) {
@@ -1457,7 +1453,6 @@ static THREAD_ENTRY _listenTcpClient(void* context) {
 		}
 
 		free(tokens);
-		free(command);
 	}
 
 	clientContext->debugger->backend->printf(clientContext->debugger->backend, "Client closed.\n");
@@ -1484,7 +1479,7 @@ static THREAD_ENTRY _listenTcpClient(void* context) {
 	return 0;
 }
 
-static THREAD_ENTRY _listenTcpServerForClient(void* context) {
+static THREAD_ENTRY _listenTcpServerForClient(const void* context) {
 	const struct TcpServerContext* serverContext = context;
 	const Socket socket = debugServer.tcpServer;
 
