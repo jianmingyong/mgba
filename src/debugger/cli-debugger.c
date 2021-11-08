@@ -3,9 +3,14 @@
  * This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
+
+
 #include <mgba/internal/debugger/cli-debugger.h>
 
 #include <mgba/internal/debugger/symbols.h>
+
+#include "mgba/internal/gb/gb.h"
+#include "mgba/internal/gba/gba.h"
 
 #include <mgba/core/core.h>
 #include <mgba/core/timing.h>
@@ -1455,7 +1460,9 @@ static THREAD_ENTRY _listenTcpClient(const void* context) {
 		free(tokens);
 	}
 
-	clientContext->debugger->backend->printf(clientContext->debugger->backend, "Client closed.\n");
+	if (clientContext->debugger != NULL) {
+		clientContext->debugger->backend->printf(clientContext->debugger->backend, "Client closed.\n");
+	} 
 
 	struct DebugClientItem* head = debugServer.debugClientHead;
 
@@ -1551,6 +1558,8 @@ static void _startDebugServer(struct CLIDebugger* debugger, struct CLIDebugVecto
 
 	Thread listenerThread;
 	ThreadCreate(&listenerThread, _listenTcpServerForClient, &debugServer.context);
+
+	_continue(debugger, dv);
 }
 
 static void _stopDebugServer(struct CLIDebugger* debugger, struct CLIDebugVector* dv) {
@@ -1577,4 +1586,6 @@ static void _stopDebugServer(struct CLIDebugger* debugger, struct CLIDebugVector
 	debugServer.tcpServer = 0;
 
 	debugger->backend->printf(debugger->backend, "Debug server has stopped.\n");
+
+	_continue(debugger, dv);
 }
