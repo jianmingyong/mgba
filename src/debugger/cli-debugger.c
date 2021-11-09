@@ -1384,7 +1384,7 @@ static THREAD_ENTRY _listenTcpClient(const void* context) {
 			}
 		}
 
-		clientContext->debugger->backend->printf(clientContext->debugger->backend, "Packet Received:");
+		clientContext->debugger->backend->printf(clientContext->debugger->backend, "Packet Received (%d):", tokenSize);
 
 		for (int i = 0; i < tokenSize; i++) {
 			clientContext->debugger->backend->printf(clientContext->debugger->backend, " %s", tokens[i]);
@@ -1393,14 +1393,7 @@ static THREAD_ENTRY _listenTcpClient(const void* context) {
 		clientContext->debugger->backend->printf(clientContext->debugger->backend, "\n");
 
 		if (tokenSize > 0) {
-			if (startswith(tokens[0], "read_byte")) {
-				if (tokenSize == 3) {
-					const uint32_t value = debugger->d.core->rawRead8(debugger->d.core, (uint32_t) strtoull(tokens[1], NULL, 10), (int) strtoull(tokens[2], NULL, 10));
-					SocketSend(client, &buffer, snprintf(buffer, 16384, "%i\n", value));
-				} else {
-					SocketSend(client, &buffer, snprintf(buffer, 16384, "%d\n", -1));
-				}
-			} else if (startswith(tokens[0], "read_bytes")) {
+            if (startswith(tokens[0], "read_bytes")) {
 				if (tokenSize == 4) {
 					const uint32_t startIndex = (uint32_t) strtoull(tokens[1], NULL, 10);
 					const uint32_t stopIndex = (uint32_t) strtoull(tokens[2], NULL, 10);
@@ -1416,10 +1409,10 @@ static THREAD_ENTRY _listenTcpClient(const void* context) {
 				} else {
 					SocketSend(client, &buffer, snprintf(buffer, 16384, "%d\n", -1));
 				}
-			} else if (startswith(tokens[0], "write_byte")) {
-				if (tokenSize == 4) {
-					debugger->d.core->rawWrite8(debugger->d.core, (uint32_t) strtoull(tokens[1], NULL, 10), (int) strtoull(tokens[2], NULL, 10), (uint8_t) strtoull(tokens[3], NULL, 10));
-					SocketSend(client, &buffer, snprintf(buffer, 16384, "%d\n", 1));
+			} else if (startswith(tokens[0], "read_byte")) {
+				if (tokenSize == 3) {
+					const uint32_t value = debugger->d.core->rawRead8(debugger->d.core, (uint32_t) strtoull(tokens[1], NULL, 10), (int) strtoull(tokens[2], NULL, 10));
+					SocketSend(client, &buffer, snprintf(buffer, 16384, "%i\n", value));
 				} else {
 					SocketSend(client, &buffer, snprintf(buffer, 16384, "%d\n", -1));
 				}
@@ -1429,6 +1422,13 @@ static THREAD_ENTRY _listenTcpClient(const void* context) {
                         debugger->d.core->rawWrite8(debugger->d.core, (uint32_t) strtoull(tokens[1], NULL, 10), (int) strtoull(tokens[2], NULL, 10), (uint8_t) strtoull(tokens[i], NULL, 10));
                     }
                     
+					SocketSend(client, &buffer, snprintf(buffer, 16384, "%d\n", 1));
+				} else {
+					SocketSend(client, &buffer, snprintf(buffer, 16384, "%d\n", -1));
+				}
+			} else if (startswith(tokens[0], "write_byte")) {
+				if (tokenSize == 4) {
+					debugger->d.core->rawWrite8(debugger->d.core, (uint32_t) strtoull(tokens[1], NULL, 10), (int) strtoull(tokens[2], NULL, 10), (uint8_t) strtoull(tokens[3], NULL, 10));
 					SocketSend(client, &buffer, snprintf(buffer, 16384, "%d\n", 1));
 				} else {
 					SocketSend(client, &buffer, snprintf(buffer, 16384, "%d\n", -1));
