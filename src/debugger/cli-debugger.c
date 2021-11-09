@@ -1363,6 +1363,7 @@ static THREAD_ENTRY _listenTcpClient(const void* context) {
 		char** tokens = NULL;
 		int32_t tokenSize = 0;
 		size_t offset = 0;
+		int32_t exit = 0;
 
 		for (size_t i = 0; i < read; i++) {
 			if (buffer[i] == ' ' || buffer[i] == '\r' || buffer[i] == '\n') {
@@ -1448,9 +1449,11 @@ static THREAD_ENTRY _listenTcpClient(const void* context) {
 				}
 			} else {
 				SocketSend(client, &buffer, snprintf(buffer, 16384, "%d\n", -1));
+				exit = 1;
 			}
 		} else {
 			SocketSend(client, &buffer, snprintf(buffer, 16384, "%d\n", -1));
+			exit = 1;
 		}
 
 		for (int32_t i = 0; i < tokenSize; i++) {
@@ -1458,6 +1461,8 @@ static THREAD_ENTRY _listenTcpClient(const void* context) {
 		}
 
 		free(tokens);
+
+		if (exit) break;
 	}
 
 	if (clientContext->debugger != NULL) {
@@ -1535,6 +1540,12 @@ static void _startDebugServer(struct CLIDebugger* debugger, struct CLIDebugVecto
 	SocketSubsystemInit();
 
 	const Socket tcpServer = SocketOpenTCP(26518, NULL);
+
+#ifdef __unix__
+	const int value = 1;
+	setsockopt(tcpServer, SOL_SOCKET, SO_REUSEADDR, &value, sizeof(int));
+#endif
+
 
 	if (SOCKET_FAILED(tcpServer)) {
 		SocketSubsystemDeinit();
